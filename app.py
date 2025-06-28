@@ -10,7 +10,12 @@ from PIL import Image
 import streamlit as st
 import os
 import time
-GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]  # Set in secrets.toml
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load from .env file if available
+
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")  # fallback to empty string
 
 import requests
 
