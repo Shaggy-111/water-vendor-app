@@ -2,8 +2,7 @@ import sqlite3
 import os
 
 # Ensure 'data' folder exists
-if not os.path.exists("data"):
-    os.makedirs("data")
+os.makedirs("data", exist_ok=True)
 
 # Connect to database
 conn = sqlite3.connect('data/orders.db')
@@ -25,14 +24,21 @@ cursor.execute('''
     )
 ''')
 
-# Add 'is_approved' column if not exists
+# Add extra columns to users table if missing
 cursor.execute("PRAGMA table_info(users)")
-columns = [col[1] for col in cursor.fetchall()]
-if "is_approved" not in columns:
+user_columns = [col[1] for col in cursor.fetchall()]
+
+if "is_approved" not in user_columns:
     cursor.execute("ALTER TABLE users ADD COLUMN is_approved INTEGER DEFAULT 0")
-    print("✅ 'is_approved' column added to users table.")
-else:
-    print("ℹ️ 'is_approved' column already exists.")
+    print("✅ 'is_approved' column added.")
+
+if "latitude" not in user_columns:
+    cursor.execute("ALTER TABLE users ADD COLUMN latitude REAL")
+    print("✅ 'latitude' column added.")
+
+if "longitude" not in user_columns:
+    cursor.execute("ALTER TABLE users ADD COLUMN longitude REAL")
+    print("✅ 'longitude' column added.")
 
 # ------------------- ORDERS TABLE -------------------
 cursor.execute('''
@@ -47,7 +53,6 @@ cursor.execute('''
     )
 ''')
 
-# Add delivery-related columns to orders table if missing
 cursor.execute("PRAGMA table_info(orders)")
 order_columns = [col[1] for col in cursor.fetchall()]
 
@@ -71,17 +76,28 @@ cursor.execute('''
     )
 ''')
 
+# ------------------- LAB REPORTS TABLE -------------------
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS lab_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        month TEXT,
+        year TEXT,
+        report_path TEXT,
+        uploaded_at TEXT
+    )
+''')
+print("✅ 'lab_reports' table created.")
+
 # ------------------- DEFAULT ADMIN -------------------
 cursor.execute('''
     INSERT OR IGNORE INTO users (
-        username, password, location, email, mobile, is_verified, role, id_proof_path, is_approved
+        username, password, location, email, mobile,
+        is_verified, role, id_proof_path, is_approved
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ''', ('admin', 'admin123', 'HeadOffice', 'admin@system.com', '9999999999', 1, 'admin', '', 1))
-
-print("✅ Default admin created (if not already present).")
+print("✅ Default admin inserted (if not present).")
 
 # ------------------- Finalize -------------------
 conn.commit()
 conn.close()
-
 print("✅ Database setup complete.")

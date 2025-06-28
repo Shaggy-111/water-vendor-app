@@ -10,6 +10,24 @@ from PIL import Image
 import streamlit as st
 import os
 import time
+GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]  # Set in secrets.toml
+
+import requests
+
+def get_lat_lng_from_address(address):
+    try:
+        url = f"https://maps.googleapis.com/maps/api/geocode/json?address={address}&key={GOOGLE_API_KEY}"
+        response = requests.get(url)
+        result = response.json()
+        if result["status"] == "OK":
+            location = result["results"][0]["geometry"]["location"]
+            return location["lat"], location["lng"]
+        else:
+            return None, None
+    except Exception as e:
+        print(f"Geocoding error: {e}")
+        return None, None
+
 
 def status_badge(status):
     if status == "Pending":
@@ -66,6 +84,24 @@ def send_verification_code(to_email, code):
     except Exception as e:
         st.error(f"Email send failed: {e}")
         return False
+    
+import requests
+
+def get_lat_long_from_address(address, api_key):
+    try:
+        url = f"https://maps.googleapis.com/maps/api/geocode/json"
+        params = {"address": address, "key": api_key}
+        res = requests.get(url, params=params)
+        data = res.json()
+        if data["status"] == "OK":
+            loc = data["results"][0]["geometry"]["location"]
+            return loc["lat"], loc["lng"]
+        return None, None
+    except Exception as e:
+        print("Geocoding error:", e)
+        return None, None
+
+
 
 
 # ------------------ SIGNUP FUNCTION ------------------
@@ -76,6 +112,7 @@ def generate_verification_code(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
 def signup_user():
+    import requests
     st.subheader("📝 Sign-Up (Vendor / Delivery Partner)")
 
     role = st.radio("Select Role", ["vendor", "delivery"])
@@ -95,17 +132,18 @@ def signup_user():
         address = st.text_area("Enter Full Address (Street, Building, etc.)")
         location = f"{selected_city} - {address}" if address else ""
 
-    # Delivery-specific fields
+    # Delivery Fields
     id_proof_path = ""
-    vehicle_number = ""
     if role == "delivery":
-        vehicle_number = st.text_input("Vehicle Number")
-        id_proof_file = st.file_uploader("Upload ID Proof (PDF or Image)", type=["pdf", "jpg", "jpeg", "png"])
+        upload_option = st.radio("Upload ID Proof Using:", ["📁 File Upload", "📷 Camera"])
+        if upload_option == "📁 File Upload":
+            id_proof_file = st.file_uploader("Choose Image/PDF", type=["jpg", "jpeg", "png", "pdf"])
+        else:
+            id_proof_file = st.camera_input("Capture ID Proof")
 
-    # CAPTCHA
+    # Captcha
     if "captcha_code" not in st.session_state:
         st.session_state.captcha_code = generate_captcha_code()
-
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown(f"### 🔐 Captcha: `{st.session_state.captcha_code}`")
@@ -115,23 +153,16 @@ def signup_user():
 
     captcha_input = st.text_input("Enter Captcha Code (e.g., ABC)")
 
-    # Session State
+    # OTP Verification Flow
     for key in ["email_verified", "verification_sent", "account_created"]:
         st.session_state.setdefault(key, False)
 
-    # Send OTP
     if not st.session_state.verification_sent and st.button("Send Email Verification Code"):
-        if not (username and password and email and location and mobile and captcha_input):
+        if not all([username, password, email, location, mobile, captcha_input]):
             st.warning("⚠️ Please fill all fields.")
             return
-        if not is_valid_username(username):
-            st.error("❌ Username format invalid.")
-            return
-        if not is_strong_password(password):
-            st.error("❌ Weak password.")
-            return
-        if not is_valid_email(email):
-            st.error("❌ Invalid email.")
+        if not is_valid_username(username) or not is_strong_password(password) or not is_valid_email(email):
+            st.warning("⚠️ Invalid Username / Email / Weak Password.")
             return
         if captcha_input.strip().upper() != st.session_state.captcha_code:
             st.error("❌ Captcha mismatch.")
@@ -140,21 +171,19 @@ def signup_user():
             st.error("❌ Mobile number must be 10 digits.")
             return
 
-        try:
-            with sqlite3.connect('data/orders.db', timeout=10) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
-                if cursor.fetchone():
-                    st.error("⚠️ Username already exists.")
-                    return
-                cursor.execute("SELECT 1 FROM users WHERE email = ?", (email,))
-                if cursor.fetchone():
-                    st.error("⚠️ Email already exists.")
-                    return
-        except Exception as e:
-            st.error(f"❌ DB Error: {e}")
-            return
+        # DB Duplicate Check
+        with sqlite3.connect('data/orders.db') as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+            if cursor.fetchone():
+                st.error("⚠️ Username already exists.")
+                return
+            cursor.execute("SELECT 1 FROM users WHERE email = ?", (email,))
+            if cursor.fetchone():
+                st.error("⚠️ Email already exists.")
+                return
 
+        # Send OTP
         otp_code = str(random.randint(100000, 999999))
         st.session_state.email_otp = otp_code
         st.session_state.email_to_verify = email
@@ -162,7 +191,7 @@ def signup_user():
             st.success("📩 OTP sent successfully.")
             st.session_state.verification_sent = True
 
-    # Verify OTP
+    # OTP Verify
     if st.session_state.verification_sent and not st.session_state.email_verified:
         otp_input = st.text_input("Enter the 6-digit OTP sent to your email")
         if st.button("✅ Verify Email"):
@@ -172,62 +201,87 @@ def signup_user():
             else:
                 st.error("❌ Incorrect OTP.")
 
-    # Create Account
-    if st.session_state.email_verified and st.button("Create Account"):
-        if not (username and password and email and location and captcha_input):
+    # Final Create Account
+    if st.session_state.email_verified and st.button("Create Account", key="create_account_final"):
+        if not all([username, password, email, location, mobile, captcha_input]):
             st.warning("⚠️ All fields required.")
             return
         if captcha_input.strip().upper() != st.session_state.captcha_code:
-            st.error("❌ Captcha invalid.")
+            st.error("❌ Invalid captcha.")
             return
 
-        # Handle delivery ID proof
+        # Delivery image check
         if role == "delivery":
             if not id_proof_file:
-                st.error("❌ Please upload ID proof.")
+                st.error("❌ Please upload or capture your ID proof.")
                 return
             folder = "data/id_proofs"
             os.makedirs(folder, exist_ok=True)
-            id_proof_path = os.path.join(folder, f"{username}_{id_proof_file.name}")
+            ext = "png" if upload_option == "📷 Camera" else id_proof_file.name.split(".")[-1]
+            file_name = f"{username}_id_proof.{ext}"
+            id_proof_path = os.path.join(folder, file_name)
             with open(id_proof_path, "wb") as f:
-                f.write(id_proof_file.read())
+                f.write(id_proof_file.getbuffer())
+        else:
+            id_proof_path = ""
+
+        # 🌍 Get Coordinates
+        try:
+            GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+            latitude, longitude = get_lat_long_from_address(location, GOOGLE_API_KEY)
+            if not latitude or not longitude:
+                st.warning("⚠️ Could not fetch location coordinates. Please check your address or API key.")
+                return
+        except Exception as e:
+            st.error("🔐 Google API Error: Check your secrets.toml")
+            return
 
         try:
-            with sqlite3.connect('data/orders.db', timeout=10) as conn:
+            with sqlite3.connect('data/orders.db') as conn:
                 cursor = conn.cursor()
+                approval_flag = 1 if role == "vendor" else 0
+
                 cursor.execute("""
-                    INSERT INTO users (username, password, location, email, mobile, verification_code, is_verified, role, id_proof_path,is_approved)
-                    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?,0)
-                """, (username, password, location, email, mobile, st.session_state.email_otp, role, id_proof_path))
+                    INSERT INTO users (
+                        username, password, location, email, mobile, verification_code,
+                        is_verified, role, id_proof_path, is_approved, latitude, longitude
+                    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                """, (username, password, location, email, mobile, st.session_state.email_otp,
+                      role, id_proof_path, approval_flag, latitude, longitude))
                 conn.commit()
 
-            st.success("✅ Account created successfully! Redirecting to login...")
-            time.sleep(3)  # Show message for 1 second
+            st.success("✅ Account created successfully! Redirecting...")
+            time.sleep(2)
             for key in ["show_signup", "captcha_code", "email_verified", "verification_sent", "account_created"]:
                 st.session_state.pop(key, None)
             st.rerun()
-
-
         except sqlite3.IntegrityError as e:
             st.error(f"❌ Duplicate Entry: {e}")
-        except sqlite3.OperationalError as e:
-            st.error(f"❌ DB Error: {e}")
+        except Exception as e:
+            st.error(f"❌ Error: {e}")
 
-    # Cancel Button
     if st.button("❌ Cancel / Back to Login"):
         for key in ["show_signup", "email_verified", "verification_sent", "account_created", "captcha_code"]:
             st.session_state.pop(key, None)
         st.rerun()
 
 
+
 # -------------------------- HELPER FUNCTION --------------------------
 def get_user_role(username, password):
-    conn = sqlite3.connect('data/orders.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT role FROM users WHERE username = ? AND password = ?", (username, password))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
+    import sqlite3
+
+    with sqlite3.connect("data/orders.db") as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT role, password FROM users WHERE username = ?", (username,))
+        result = cursor.fetchone()
+
+        if result:
+            db_role, db_password = result
+            if db_password == password:
+                return db_role
+    return None
+
 
 def status_badge(status):
     badges = {
@@ -319,6 +373,34 @@ def admin_dashboard():
                     st.rerun()
             else:
                 st.success("✅ Already Approved")
+    
+
+    st.markdown("## 🧪 Upload Water Test Report (Admin Only)")
+    month = st.selectbox("Select Month", [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ])
+    year = st.selectbox("Select Year", [str(y) for y in range(2023, datetime.now().year + 1)])
+    report_file = st.file_uploader("Upload Lab Report (PDF only)", type=["pdf"])
+
+    if report_file and st.button("📤 Upload Report"):
+        folder = "data/lab_reports"
+        os.makedirs(folder, exist_ok=True)
+        file_path = os.path.join(folder, f"{month}_{year}.pdf")
+        with open(file_path, "wb") as f:
+            f.write(report_file.read())
+
+        conn = sqlite3.connect("data/orders.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO lab_reports (month, year, report_path, uploaded_at)
+            VALUES (?, ?, ?, ?)
+        """, (month, year, file_path, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
+
+        st.success("✅ Report uploaded successfully.")
+
 
     # ---------------- Filter Orders ----------------
     st.subheader("🔍 Filter Orders")
@@ -409,6 +491,23 @@ def admin_dashboard():
                 st.write(f"🚚 Delivered By: `{row.get('delivery_by') or 'Not Yet Assigned'}`")
                 st.write(f"📍 Vendor Address: `{row.get('vendor_location', 'N/A')}`")
 
+                # 📍 Vendor Location Map
+                conn = sqlite3.connect("data/orders.db")
+                cursor = conn.cursor()
+                cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["vendor_name"],))
+                result = cursor.fetchone()
+                conn.close()
+
+                if result:
+                    lat, lon = result
+                    if lat and lon:
+                        st.markdown("🌍 **Google Map Location of Vendor**")
+                        st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+                    else:
+                        st.warning("⚠️ Vendor's coordinates not available.")
+                else:
+                    st.warning("⚠️ Vendor record not found.")
+
                 # Delivery Photo
                 if row.get("delivery_photo") and os.path.exists(row["delivery_photo"]):
                     st.image(row["delivery_photo"], caption="📷 Delivery Photo", width=300)
@@ -474,6 +573,10 @@ def vendor_dashboard(username):
 
     st.title(f"🚚 Vendor Panel - AquaTrack - {username}")
 
+    
+
+    
+
     # 📍 Location
     conn = sqlite3.connect('data/orders.db')
     cursor = conn.cursor()
@@ -537,6 +640,29 @@ def vendor_dashboard(username):
     df = pd.read_sql_query("SELECT * FROM orders WHERE vendor_name = ? ORDER BY created_at DESC", conn, params=(username,))
     conn.close()
     df["created_at"] = pd.to_datetime(df["created_at"])
+
+    st.markdown("## 🧪 Monthly Water Test Reports")
+    conn = sqlite3.connect("data/orders.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT month, year, report_path FROM lab_reports ORDER BY uploaded_at DESC")
+    reports = cursor.fetchall()
+    conn.close()
+
+    if not reports:
+        st.info("No reports uploaded yet.")
+    else:
+        for month, year, path in reports:
+            report_title = f"📄 **{month} {year}**"
+            st.markdown(report_title)
+            if path and os.path.exists(path):
+                ext = os.path.splitext(path)[1].lower()
+                if ext in [".jpg", ".jpeg", ".png"]:
+                    st.image(path, caption=f"{month} {year} Report", use_column_width=True)
+                elif ext == ".pdf":
+                    with open(path, "rb") as file:
+                        st.download_button("📥 Download PDF", file.read(), file_name=os.path.basename(path))
+            else:
+                st.warning("❌ Report file not found.")
 
     # 📊 Summary
     st.subheader("📊 Your Order Summary")
@@ -697,6 +823,21 @@ def delivery_dashboard(username):
             st.write(f"📦 Order Type: `{row['order_type']}`")
             st.write(f"🧮 Quantity: `{row['quantity']}`")
             st.write(f"📍 Address: `{row['vendor_location']}`")
+            conn = sqlite3.connect("data/orders.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["vendor_name"],))
+            result = cursor.fetchone()
+            conn.close()
+
+            if result:
+                lat, lon = result
+                if lat and lon:
+                    st.markdown("🌍 **Vendor Location Map**")
+                    st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+                else:
+                    st.warning("⚠️ Vendor coordinates not available.")
+            else:
+                st.warning("⚠️ Vendor record not found.")
             st.write(f"📅 Placed: `{row['created_at']}`")
             st.write(f"📌 Status: **{row['status']}**")
 
@@ -704,20 +845,26 @@ def delivery_dashboard(username):
             vehicle_number = st.text_input("Enter Vehicle Number", value=row['vehicle_number'] or "", key=f"vehicle_{row['id']}")
 
             # 📸 Upload Delivery Image
-            uploaded_file = st.file_uploader("Upload Delivery Photo", type=["jpg", "jpeg", "png"], key=f"photo_{row['id']}")
+            uploaded_file = st.camera_input("📷 Capture Delivery Photo (Required)", key=f"cam_photo_{row['id']}")
+
 
             # 🔄 Status Dropdown
             new_status = st.selectbox("Update Order Status", ["Select", "Dispatched", "On Vehicle", "Delivered"], key=f"status_{row['id']}")
 
             if st.button(f"✅ Update Order #{row['id']}", key=f"update_{row['id']}"):
+            # ⛔ Block if Delivered without photo
+                if new_status == "Delivered" and not uploaded_file:
+                    st.error("❌ You must capture a delivery photo before marking as Delivered.")
+                    return
+
                 photo_path = ""
 
                 if uploaded_file and new_status == "Delivered":
                     folder = "data/delivery_images"
                     os.makedirs(folder, exist_ok=True)
-                    photo_path = os.path.join(folder, f"{row['id']}_{uploaded_file.name}")
+                    photo_path = os.path.join(folder, f"{row['id']}_delivered.jpg")
                     with open(photo_path, "wb") as f:
-                        f.write(uploaded_file.read())
+                        f.write(uploaded_file.getbuffer())
 
                 conn = sqlite3.connect("data/orders.db")
                 cursor = conn.cursor()
@@ -816,16 +963,12 @@ import streamlit as st
 
 def main():
     st.set_page_config(page_title="AquaTrack by VeeKay", layout="centered")
-
-    # App Title (no logo)
     st.markdown("<h1 style='color: #0066cc;'>AquaTrack by VeeKay</h1>", unsafe_allow_html=True)
 
-    # Initialize session state variables
     for key in ["logged_in", "username", "role", "show_signup", "show_forgot_password"]:
         if key not in st.session_state:
             st.session_state[key] = False if key in ["logged_in", "show_signup", "show_forgot_password"] else ""
 
-    # Logged-in Routing
     if st.session_state.logged_in:
         if st.session_state.role == "admin":
             admin_dashboard()
@@ -835,36 +978,66 @@ def main():
             delivery_dashboard(st.session_state.username)
         return
 
-
-    # Signup Page
     if st.session_state.show_signup:
         signup_user()
         return
 
-    # Forgot Password Page
     if st.session_state.show_forgot_password:
         forgot_password()
         return
 
-    # Login Form
+    # -------------------- LOGIN BLOCK --------------------
     st.subheader("Login to Your Account")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     role = st.radio("Login as", ["admin", "vendor", "delivery"])
 
-
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Login"):
-            user_role = get_user_role(username, password)
-            if user_role == role:
-                st.session_state.logged_in = True
-                st.session_state.username = username
-                st.session_state.role = role
-                st.success(f"✅ Logged in as {role.capitalize()}")
-                st.rerun()
+            if not username or not password:
+                st.warning("⚠️ Please enter both username and password.")
             else:
-                st.error("❌ Invalid username, password or role combination.")
+                try:
+                    with sqlite3.connect('data/orders.db') as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT username, password, role, is_verified, is_approved 
+                            FROM users 
+                            WHERE username = ? OR email = ?
+                        """, (username, username))
+                        user = cursor.fetchone()
+                        print("🔍 Login Debug (fetched from DB):", user)
+
+                        if user:
+                            uname, db_pass, user_role, verified, approved = user
+
+                            if password != db_pass:
+                                st.error("❌ Invalid password.")
+                                return
+
+                            if user_role != role:
+                                st.error("❌ You selected the wrong role.")
+                                return
+
+                            if not verified:
+                                st.warning("⚠️ Your email is not verified.")
+                                return
+
+                            if user_role == "delivery" and not approved:
+                                st.warning("⚠️ Your delivery partner request is pending admin approval.")
+                                return
+
+                            # ✅ Login success
+                            st.session_state.logged_in = True
+                            st.session_state.username = uname
+                            st.session_state.role = user_role
+                            st.success(f"✅ Logged in as {user_role.capitalize()}")
+                            st.rerun()
+                        else:
+                            st.error("❌ User not found or not registered properly.")
+                except Exception as e:
+                    st.error(f"⚠️ Database error: {e}")
 
     with col2:
         if st.button("🔐 Forgot Password?"):
@@ -876,11 +1049,8 @@ def main():
         st.session_state.show_signup = True
         st.rerun()
 
-# At bottom (optional)
     st.markdown("<hr><p style='text-align:center; color:grey;'>© 2025 AquaTrack by VeeKay</p>", unsafe_allow_html=True)
 
-
-# ------------------- Entry Point -------------------
+# ------------------- ENTRY POINT -------------------
 if __name__ == '__main__':
     main()
-

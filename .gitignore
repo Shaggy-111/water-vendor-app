@@ -1,0 +1,8 @@
+# .gitignore
+data/*.db
+data/id_proofs/
+data/delivery_images/
+data/lab_reports/
+*.pyc
+__pycache__/
+.streamlit/
