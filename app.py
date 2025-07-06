@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()  # Load from .env file if available
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")  # fallback to empty string
-
+  
 import requests
 
 def get_lat_lng_from_address(address):
@@ -77,7 +77,8 @@ def send_verification_code(to_email, code):
     from_password = "xjeu xsis wtqf pfgw"  # Use app password here
 
     msg = MIMEText(f"Your verification code is: {code}")
-    msg["Subject"] = "Vendor Signup Verification Code"
+    msg["Subject"] = "c" \
+    "customer Signup Verification Code"
     msg["From"] = from_email
     msg["To"] = to_email
 
@@ -118,9 +119,9 @@ def generate_verification_code(length=6):
 
 def signup_user():
     import requests
-    st.subheader("📝 Sign-Up (Vendor / Delivery Partner)")
+    st.subheader("📝 Sign-Up (customer / Delivery Partner)")
 
-    role = st.radio("Select Role", ["vendor", "delivery"])
+    role = st.radio("Select Role", ["customer", "delivery"])
 
     # Common Fields
     username = st.text_input("Choose a Username")
@@ -129,7 +130,7 @@ def signup_user():
     mobile = st.text_input("Enter Your Mobile Number")
 
     # Address
-    city_options = ["Delhi", "Mumbai", "Other"]
+    city_options = ["Delhi", "Gurugram","Noida","Haryana","Faridabad","Other"]
     selected_city = st.selectbox("Select Your City", city_options)
     if selected_city == "Other":
         location = st.text_area("Enter Full Address")
@@ -244,7 +245,7 @@ def signup_user():
         try:
             with sqlite3.connect('data/orders.db') as conn:
                 cursor = conn.cursor()
-                approval_flag = 1 if role == "vendor" else 0
+                approval_flag = 1 if role == "customer" else 0
 
                 cursor.execute("""
                     INSERT INTO users (
@@ -309,7 +310,7 @@ def admin_dashboard():
     import os
 
     st.title("👑 Admin Dashboard")
-    st.success("Welcome, Admin! Manage vendor orders and delivery partners.")
+    st.success("Welcome, Admin! Manage customer orders and delivery partners.")
 
     col1, col2, col3, col4 = st.columns([5, 1, 1, 1])
     with col3:
@@ -413,15 +414,15 @@ def admin_dashboard():
     with f1:
         selected_status = st.selectbox("Status", ["All", "Pending", "Accepted", "Rejected", "Dispatched", "Delivered"])
     with f2:
-        vendor_filter = st.text_input("Vendor Name").strip()
+        customer_filter = st.text_input("customer Name").strip()
     with f3:
         date_filter = st.date_input("Order Date", value=None)
 
     filtered_df = df.copy()
     if selected_status != "All":
         filtered_df = filtered_df[filtered_df["status"] == selected_status]
-    if vendor_filter:
-        filtered_df = filtered_df[filtered_df["vendor_name"].str.contains(vendor_filter, case=False)]
+    if customer_filter:
+        filtered_df = filtered_df[filtered_df["customer_name"].str.contains(customer_filter, case=False)]
     if date_filter:
         filtered_df = filtered_df[filtered_df["created_at"].dt.date == date_filter]
 
@@ -461,7 +462,7 @@ def admin_dashboard():
 
         col_id, col_status, col_btn = st.columns([2, 3, 2])
         with col_id:
-            st.markdown(f"🧾 **Order #{row['id']} - {row['vendor_name']}**")
+            st.markdown(f"🧾 **Order #{row['id']} - {row['customer_name']}**")
         with col_status:
             overall = "✅ Delivered" if row["status"] == "Delivered" else "🟡 In Progress"
             st.markdown(f"📌 Status: **{overall}**")
@@ -470,7 +471,7 @@ def admin_dashboard():
                 st.session_state[f"expand_order_{row['id']}"] = not st.session_state[f"expand_order_{row['id']}"]
 
         if st.session_state.get(f"expand_order_{row['id']}", False):
-            with st.expander(f"Order #{row['id']} - {row['vendor_name']}", expanded=True):
+            with st.expander(f"Order #{row['id']} - {row['customer_name']}", expanded=True):
                 st.write(f"📦 Items: `{row['order_type']}`")
                 st.write(f"📦 Quantity: `{row['quantity']}`")
                 st.write(f"📅 Placed At: `{row['created_at']}`")
@@ -494,24 +495,26 @@ def admin_dashboard():
                 # Order Details
                 st.write(f"🏷️ Vehicle: `{row.get('vehicle_number') or 'None'}`")
                 st.write(f"🚚 Delivered By: `{row.get('delivery_by') or 'Not Yet Assigned'}`")
-                st.write(f"📍 Vendor Address: `{row.get('vendor_location', 'N/A')}`")
+                st.write(f"📍 Customer Address: `{row.get('Customer_location', 'N/A')}`")
 
-                # 📍 Vendor Location Map
+                # 📍 Customer Location Map
                 conn = sqlite3.connect("data/orders.db")
                 cursor = conn.cursor()
-                cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["vendor_name"],))
+                cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["customer_name"],))
                 result = cursor.fetchone()
                 conn.close()
 
                 if result:
                     lat, lon = result
                     if lat and lon:
-                        st.markdown("🌍 **Google Map Location of Vendor**")
-                        st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+                        st.markdown("🌍 **Google Map Location of customer**")
+        
+                        maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+                        st.markdown(f"[📍 Open in Google Maps]({maps_url})", unsafe_allow_html=True)
                     else:
-                        st.warning("⚠️ Vendor's coordinates not available.")
+                        st.warning("⚠️ customer's coordinates not available.")
                 else:
-                    st.warning("⚠️ Vendor record not found.")
+                    st.warning("⚠️ customer record not found.")
 
                 # Delivery Photo
                 if row.get("delivery_photo") and os.path.exists(row["delivery_photo"]):
@@ -560,8 +563,8 @@ def admin_dashboard():
                             st.rerun()
 
 
-# -------------------------- VENDOR DASHBOARD --------------------------
-def vendor_dashboard(username):
+# -------------------------- Customer DASHBOARD --------------------------
+def customer_dashboard(username):
     import pandas as pd
     import matplotlib.pyplot as plt
     from datetime import datetime, timedelta
@@ -576,7 +579,7 @@ def vendor_dashboard(username):
             st.session_state.role = ""
             st.rerun()
 
-    st.title(f"🚚 Vendor Panel - AquaTrack - {username}")
+    st.title(f"🚚 customer Panel - AquaTrack - {username}")
 
     
 
@@ -627,12 +630,12 @@ def vendor_dashboard(username):
             created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cursor.execute("SELECT location FROM users WHERE username = ?", (username,))
             loc_data = cursor.fetchone()
-            vendor_location = loc_data[0] if loc_data else "Unknown"
+            customer_location = loc_data[0] if loc_data else "Unknown"
 
             cursor.execute("""
-                INSERT INTO orders (vendor_name, order_type, quantity, status, created_at, vendor_location)
+                INSERT INTO orders (customer_name, order_type, quantity, status, created_at, customer_location)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (username, summary, total_bottles, 'Pending', created_at, vendor_location))
+            """, (username, summary, total_bottles, 'Pending', created_at, customer_location))
             conn.commit()
             conn.close()
 
@@ -642,7 +645,7 @@ def vendor_dashboard(username):
 
     # 🧾 Load Orders
     conn = sqlite3.connect('data/orders.db')
-    df = pd.read_sql_query("SELECT * FROM orders WHERE vendor_name = ? ORDER BY created_at DESC", conn, params=(username,))
+    df = pd.read_sql_query("SELECT * FROM orders WHERE customer_name = ? ORDER BY created_at DESC", conn, params=(username,))
     conn.close()
     df["created_at"] = pd.to_datetime(df["created_at"])
 
@@ -715,7 +718,7 @@ def vendor_dashboard(username):
                             item_dict[name.strip()] = 1
                         st.markdown(f"• {name.strip()} — **{item_dict[name.strip()]} cases**")
 
-                st.write(f"📍 Your Address: `{row.get('vendor_location', 'Not Available')}`")
+                st.write(f"📍 Your Address: `{row.get('customer_location', 'Not Available')}`")
                 st.write(f"📌 Status: **{status_badge(row['status'])}**")
 
     # 📍 Order Status Progress
@@ -824,33 +827,75 @@ def delivery_dashboard(username):
         return
 
     for _, row in df.iterrows():
-        with st.expander(f"Order #{row['id']} - {row['vendor_name']}"):
+        with st.expander(f"Order #{row['id']} - {row['customer_name']}"):
             st.write(f"📦 Order Type: `{row['order_type']}`")
             st.write(f"🧮 Quantity: `{row['quantity']}`")
-            st.write(f"📍 Address: `{row['vendor_location']}`")
+            st.write(f"📍 Address: `{row['customer_location']}`")
             conn = sqlite3.connect("data/orders.db")
             cursor = conn.cursor()
-            cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["vendor_name"],))
+            cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["customer_name"],))
             result = cursor.fetchone()
             conn.close()
 
             if result:
                 lat, lon = result
                 if lat and lon:
-                    st.markdown("🌍 **Vendor Location Map**")
-                    st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}))
+                    maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+                    st.markdown(
+                        f"🌍 **Customer Location:** [📍 Open in Google Maps]({maps_url})",
+                        unsafe_allow_html=True
+                    )
                 else:
-                    st.warning("⚠️ Vendor coordinates not available.")
+                    st.warning("⚠️ Customer coordinates not available.")
             else:
-                st.warning("⚠️ Vendor record not found.")
+                st.warning("⚠️ Customer record not found.")
+
             st.write(f"📅 Placed: `{row['created_at']}`")
             st.write(f"📌 Status: **{row['status']}**")
 
             # 🚛 Vehicle Number Input
             vehicle_number = st.text_input("Enter Vehicle Number", value=row['vehicle_number'] or "", key=f"vehicle_{row['id']}")
 
-            # 📸 Upload Delivery Image
-            uploaded_file = st.camera_input("📷 Capture Delivery Photo (Required)", key=f"cam_photo_{row['id']}")
+            # 📸 Upload Delivery Image (Camera or File)
+            st.subheader("📤 Upload Delivery Image")
+
+            upload_option = st.radio(
+                "Choose upload method:",
+                ["📁 Upload from File", "📷 Capture with Camera"],
+                key=f"upload_choice_{row['id']}"
+                )
+
+            if upload_option == "📁 Upload from File":
+                uploaded_file = st.file_uploader(
+                "Upload delivery photo (JPG/PNG)",
+                type=["jpg", "jpeg", "png"],
+                key=f"file_upload_{row['id']}"
+                )
+            else:
+                uploaded_file = st.camera_input(
+                "Capture delivery photo",
+                key=f"cam_upload_{row['id']}"
+                )
+
+            if uploaded_file:
+                folder = "data/delivery_images"
+                os.makedirs(folder, exist_ok=True)
+                ext = uploaded_file.name.split(".")[-1] if hasattr(uploaded_file, "name") else "jpg"
+                filename = f"delivery_{row['id']}_{int(time.time())}.{ext}"
+                filepath = os.path.join(folder, filename)
+
+                with open(filepath, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+    # ✅ Update DB
+                with sqlite3.connect("data/orders.db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("UPDATE orders SET delivery_image = ? WHERE id = ?", (filepath, row["id"]))
+                    conn.commit()
+
+                st.success("✅ Delivery image saved successfully.")
+                st.image(filepath, caption="Uploaded Image", use_column_width=True)
+
 
 
             # 🔄 Status Dropdown
@@ -970,23 +1015,28 @@ def main():
     st.set_page_config(page_title="AquaTrack by VeeKay", layout="centered")
     st.markdown("<h1 style='color: #0066cc;'>AquaTrack by VeeKay</h1>", unsafe_allow_html=True)
 
+    # --------------------------------------------------
+    # Init session keys
     for key in ["logged_in", "username", "role", "show_signup", "show_forgot_password"]:
         if key not in st.session_state:
             st.session_state[key] = False if key in ["logged_in", "show_signup", "show_forgot_password"] else ""
+    # --------------------------------------------------
 
+    # 🔑  A‑ If user already logged‑in, route by role
     if st.session_state.logged_in:
-        if st.session_state.role == "admin":
+        role = st.session_state.role   # already lowercase ("admin","customer","delivery")
+        if role == "admin":
             admin_dashboard()
-        elif st.session_state.role == "vendor":
-            vendor_dashboard(st.session_state.username)
-        elif st.session_state.role == "delivery":
+        elif role == "customer":
+            customer_dashboard(st.session_state.username)   # <- lower‑case function name
+        elif role == "delivery":
             delivery_dashboard(st.session_state.username)
         return
 
+    # 🔑  B‑ Signup / Forgot‑password screens
     if st.session_state.show_signup:
         signup_user()
         return
-
     if st.session_state.show_forgot_password:
         forgot_password()
         return
@@ -995,7 +1045,9 @@ def main():
     st.subheader("Login to Your Account")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
-    role = st.radio("Login as", ["admin", "vendor", "delivery"])
+
+    # 🟢 radio values all lowercase
+    role = st.radio("Login as", ["admin", "customer", "delivery"])
 
     col1, col2 = st.columns(2)
     with col1:
@@ -1007,40 +1059,43 @@ def main():
                     with sqlite3.connect('data/orders.db') as conn:
                         cursor = conn.cursor()
                         cursor.execute("""
-                            SELECT username, password, role, is_verified, is_approved 
-                            FROM users 
+                            SELECT username, password, role, is_verified, is_approved
+                            FROM users
                             WHERE username = ? OR email = ?
                         """, (username, username))
                         user = cursor.fetchone()
-                        print("🔍 Login Debug (fetched from DB):", user)
 
                         if user:
                             uname, db_pass, user_role, verified, approved = user
 
+                            # map legacy value
+                            if user_role == "vendor":
+                                user_role = "customer"
+                            user_role =user_role.lower()
+
+                            role_selected = role.lower()  # already lower
+
                             if password != db_pass:
                                 st.error("❌ Invalid password.")
                                 return
-
-                            if user_role != role:
+                            if user_role != role_selected:
                                 st.error("❌ You selected the wrong role.")
                                 return
-
                             if not verified:
                                 st.warning("⚠️ Your email is not verified.")
                                 return
-
                             if user_role == "delivery" and not approved:
-                                st.warning("⚠️ Your delivery partner request is pending admin approval.")
+                                st.warning("⚠️ Delivery partner approval pending.")
                                 return
 
-                            # ✅ Login success
+                            # ✅ success
                             st.session_state.logged_in = True
                             st.session_state.username = uname
-                            st.session_state.role = user_role
+                            st.session_state.role = user_role   # lower
                             st.success(f"✅ Logged in as {user_role.capitalize()}")
                             st.rerun()
                         else:
-                            st.error("❌ User not found or not registered properly.")
+                            st.error("❌ User not found or not registered.")
                 except Exception as e:
                     st.error(f"⚠️ Database error: {e}")
 
@@ -1050,12 +1105,13 @@ def main():
             st.rerun()
 
     st.markdown("---")
-    if st.button("New vendor? Sign up here"):
+    if st.button("New customer? Sign up here"):
         st.session_state.show_signup = True
         st.rerun()
 
     st.markdown("<hr><p style='text-align:center; color:grey;'>© 2025 AquaTrack by VeeKay</p>", unsafe_allow_html=True)
 
+
 # ------------------- ENTRY POINT -------------------
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
