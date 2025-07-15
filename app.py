@@ -434,10 +434,13 @@ def admin_dashboard():
 
     # ---------------- Metrics & Chart ----------------
     st.markdown("### 📊 Order Status Overview")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3,c4,c5 = st.columns(5)
     c1.metric("✅ Accepted", df[df["status"] == "Accepted"].shape[0])
     c2.metric("❌ Rejected", df[df["status"] == "Rejected"].shape[0])
     c3.metric("⏳ Pending", df[df["status"] == "Pending"].shape[0])
+    c4.metric("Dispatched", df[df["status"] == "Dispatched"].shape[0])
+    c5.metric("Delivered", df[df["status"] == "Delivered"].shape[0])
+    
 
     st.markdown("### 📈 Status Distribution")
     fig, ax = plt.subplots()
@@ -475,6 +478,8 @@ def admin_dashboard():
                 st.write(f"📦 Items: `{row['order_type']}`")
                 st.write(f"📦 Quantity: `{row['quantity']}`")
                 st.write(f"📅 Placed At: `{row['created_at']}`")
+                st.write(f"🔁 Empty Bottles Received: `{row.get('empty_bottles_received', 0)}`")
+
 
                 # 🚚 Delivery Progress (Only Delivery Statuses)
                 delivery_steps = ["Dispatched", "On Vehicle", "Delivered"]
@@ -595,9 +600,6 @@ def customer_dashboard(username):
 
     # 📦 Bottle Info
     bottle_types = {
-        "1L Bottle": {"bottles_per_case": 12, "min_cases": 10},
-        "500ml Bottle": {"bottles_per_case": 20, "min_cases": 10},
-        "250ml Bottle": {"bottles_per_case": 24, "min_cases": 10},
         "20L Bottle": {"bottles_per_case": 1, "min_cases": 10},
     }
 
@@ -608,7 +610,7 @@ def customer_dashboard(username):
 
     for bottle in selected_types:
         case_inputs[bottle] = st.number_input(
-            f"Enter number of cases for {bottle}",
+            f"Enter number of Jars for {bottle}",
             min_value=bottle_types[bottle]["min_cases"],
             step=1,
             key=f"case_input_{bottle}"
@@ -674,13 +676,17 @@ def customer_dashboard(username):
 
     # 📊 Summary
     st.subheader("📊 Your Order Summary")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3,c4,c5 = st.columns(5)
     with c1:
         st.metric("✅ Accepted", df[df["status"] == "Accepted"].shape[0])
     with c2:
         st.metric("❌ Rejected", df[df["status"] == "Rejected"].shape[0])
     with c3:
         st.metric("⏳ Pending", df[df["status"] == "Pending"].shape[0])
+    with c4:
+        st.metric("⏳ Pending", df[df["status"] == "Dispatched"].shape[0])
+    with c5:
+        st.metric("⏳ Pending", df[df["status"] == "Delivered"].shape[0])
 
     # 📈 Pie Chart
     if not df.empty:
@@ -802,6 +808,7 @@ def delivery_dashboard(username):
     import sqlite3
     from datetime import datetime
     import os
+    import time
 
     st.title(f"🚚 Delivery Dashboard - {username}")
 
@@ -831,6 +838,7 @@ def delivery_dashboard(username):
             st.write(f"📦 Order Type: `{row['order_type']}`")
             st.write(f"🧮 Quantity: `{row['quantity']}`")
             st.write(f"📍 Address: `{row['customer_location']}`")
+
             conn = sqlite3.connect("data/orders.db")
             cursor = conn.cursor()
             cursor.execute("SELECT latitude, longitude FROM users WHERE username = ?", (row["customer_name"],))
@@ -841,91 +849,88 @@ def delivery_dashboard(username):
                 lat, lon = result
                 if lat and lon:
                     maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-                    st.markdown(
-                        f"🌍 **Customer Location:** [📍 Open in Google Maps]({maps_url})",
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f"🌍 **Customer Location:** [📍 Open in Google Maps]({maps_url})", unsafe_allow_html=True)
                 else:
                     st.warning("⚠️ Customer coordinates not available.")
             else:
                 st.warning("⚠️ Customer record not found.")
 
             st.write(f"📅 Placed: `{row['created_at']}`")
-            st.write(f"📌 Status: **{row['status']}**")
+            st.write(f"📌 Current Status: **{row['status']}**")
 
             # 🚛 Vehicle Number Input
             vehicle_number = st.text_input("Enter Vehicle Number", value=row['vehicle_number'] or "", key=f"vehicle_{row['id']}")
 
-            # 📸 Upload Delivery Image (Camera or File)
-            st.subheader("📤 Upload Delivery Image")
+            # 🔁 Empty Bottles Input
+            empty_bottles = st.number_input(
+                f"🔁 Empty 20L Bottles Received for Order #{row['id']}",
+                min_value=0,
+                step=1,
+                key=f"empty_bottles_{row['id']}"
+            )
 
+            # 📸 Upload Delivery Image
+            st.subheader("📤 Upload Delivery Image")
             upload_option = st.radio(
                 "Choose upload method:",
                 ["📁 Upload from File", "📷 Capture with Camera"],
                 key=f"upload_choice_{row['id']}"
-                )
+            )
 
+            uploaded_file = None
             if upload_option == "📁 Upload from File":
                 uploaded_file = st.file_uploader(
-                "Upload delivery photo (JPG/PNG)",
-                type=["jpg", "jpeg", "png"],
-                key=f"file_upload_{row['id']}"
+                    "Upload delivery photo (JPG/PNG)",
+                    type=["jpg", "jpeg", "png"],
+                    key=f"file_upload_{row['id']}"
                 )
             else:
                 uploaded_file = st.camera_input(
-                "Capture delivery photo",
-                key=f"cam_upload_{row['id']}"
+                    "Capture delivery photo",
+                    key=f"cam_upload_{row['id']}"
                 )
 
-            if uploaded_file:
+            # 🔄 Status Dropdown
+            new_status = st.selectbox(
+                "Update Order Status",
+                ["Select", "Dispatched", "On Vehicle", "Delivered"],
+                index=0,
+                key=f"status_{row['id']}"
+            )
+
+            # ✅ Final Update Button
+            if st.button(f"✅ Update Order #{row['id']}", key=f"update_order_{row['id']}"):
+                if new_status == "Select":
+                    st.warning("⚠️ Please select a valid status.")
+                    return
+                if not vehicle_number.strip():
+                    st.warning("⚠️ Please enter vehicle number.")
+                    return
+                if uploaded_file is None:
+                    st.warning("⚠️ Please upload or capture the delivery photo.")
+                    return
+
+                # Save image
                 folder = "data/delivery_images"
                 os.makedirs(folder, exist_ok=True)
                 ext = uploaded_file.name.split(".")[-1] if hasattr(uploaded_file, "name") else "jpg"
                 filename = f"delivery_{row['id']}_{int(time.time())}.{ext}"
                 filepath = os.path.join(folder, filename)
-
                 with open(filepath, "wb") as f:
                     f.write(uploaded_file.getbuffer())
 
-    # ✅ Update DB
-                with sqlite3.connect("data/orders.db") as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE orders SET delivery_image = ? WHERE id = ?", (filepath, row["id"]))
-                    conn.commit()
-
-                st.success("✅ Delivery image saved successfully.")
-                st.image(filepath, caption="Uploaded Image", use_column_width=True)
-
-
-
-            # 🔄 Status Dropdown
-            new_status = st.selectbox("Update Order Status", ["Select", "Dispatched", "On Vehicle", "Delivered"], key=f"status_{row['id']}")
-
-            if st.button(f"✅ Update Order #{row['id']}", key=f"update_{row['id']}"):
-            # ⛔ Block if Delivered without photo
-                if new_status == "Delivered" and not uploaded_file:
-                    st.error("❌ You must capture a delivery photo before marking as Delivered.")
-                    return
-
-                photo_path = ""
-
-                if uploaded_file and new_status == "Delivered":
-                    folder = "data/delivery_images"
-                    os.makedirs(folder, exist_ok=True)
-                    photo_path = os.path.join(folder, f"{row['id']}_delivered.jpg")
-                    with open(photo_path, "wb") as f:
-                        f.write(uploaded_file.getbuffer())
-
+                # ✅ Update all fields in DB
                 conn = sqlite3.connect("data/orders.db")
                 cursor = conn.cursor()
                 cursor.execute("""
-                    UPDATE orders SET status = ?, vehicle_number = ?, delivery_by = ?, delivery_image = ?
+                    UPDATE orders
+                    SET vehicle_number = ?, delivery_by = ?, delivery_image = ?, status = ?, empty_bottles_received = ?
                     WHERE id = ?
-                """, (new_status, vehicle_number, username, photo_path, row["id"]))
+                """, (vehicle_number.strip(), username, filepath, new_status, empty_bottles, row["id"]))
                 conn.commit()
                 conn.close()
 
-                st.success(f"✅ Order #{row['id']} updated to {new_status}!")
+                st.success(f"✅ Order #{row['id']} updated successfully to **{new_status}**.")
                 st.rerun()
 
 

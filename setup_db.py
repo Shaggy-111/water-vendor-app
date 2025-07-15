@@ -98,3 +98,17 @@ cursor.execute(
 conn.commit()
 conn.close()
 print("✅ Database schema ensured and default admin ready.")
+
+conn = sqlite3.connect("data/orders.db")
+cursor = conn.cursor()
+
+cursor.execute("PRAGMA table_info(orders)")
+columns = [col[1] for col in cursor.fetchall()]
+if "empty_bottles_received" not in columns:
+    cursor.execute("ALTER TABLE orders ADD COLUMN empty_bottles_received INTEGER DEFAULT 0")
+    print("✅ Added 'empty_bottles_received' column.")
+else:
+    print("ℹ️ Column already exists.")
+
+conn.commit()
+conn.close()
